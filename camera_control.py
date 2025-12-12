@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""
+Raspberry Pi Camera Control Web Interface
+カメラ設定をWebブラウザから制御するためのHTTPサーバー
+"""
+
+import json
+import os
+import sys
+import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import subprocess
+import logging
+
+# ログ設定
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/home/pi/camera_control.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# 設定ファイルのパス
+SETTINGS_FILE = '/home/pi/camera_settings.json'
+PHOTOS_DIR = '/home/pi/photos'
+
+# デフォルト設定
+DEFAULT_SETTINGS = {
+    'iso': 'auto',
+    'shutter_speed': 'auto',  # 'auto' またはマイクロ秒単位の数値
+    'white_balance': 'auto',
+    'contrast': 0,
+    'saturation': 0,
+    'awb_mode': 'auto',
+    'image_effect': 'none',
+    'rotation': 0,
+    'hflip': False,
+    'vflip': False,
+    'quality': 95,
+    'width': 4056,
+    'height': 3040,
+    'monitoring_enabled': True,
+    'detection_threshold': 30,
+    'detection_interval': 1.0,
+    'enable_multiple_exposure': False,
+    'enable_2in1_composition': False,
+    'enable_timestamp': False
+}
+
+class CameraControlHandler(BaseHTTPRequestHandler):
+    """カメラ制御用HTTPリクエストハンドラー"""
+    
+    def do_GET(self):
+        """GETリクエストの処理"""
+        parsed_path = urlparse(self.path)
+        
+        if parsed_path.path == '/':
+            self.serve_main_page()
+        elif parsed_path.path == '/style.css':
+            self.serve_css()
+        elif parsed_path.path == '/api/settings':
+            self.serve_settings()
+        elif parsed_path.path == '/api/status':
+            self.serve_status()
+        elif parsed_path.path == '/api/photos':
+            self.serve_photo_list()
+        elif parsed_path.path.startswith('/photos/'):
+            self.serve_photo(parsed_path.path[8:])  # /photos/ を除去
+        else:
+            self.send_error(404)
+    
+    def do_POST(self):
+        """POSTリクエストの処理"""
+        parsed_path = urlparse(self.path)
+        
+        if parsed_path.path == '/api/settings':
+            self.update_settings()
+        elif parsed_path.path == '/api/capture':
+            self.capture_photo()
+        elif parsed_path.path == '/api/restart_monitoring':
+            self.restart_monitoring()
+        elif parsed_path.path == '/api/stop_monitoring':
+            self.stop_monitoring()
+        else:
+            self.send_error(404)
+    
+    def serve_main_page(self):
+        """メインページのHTML配信"""
+        try:
+            with open('index.html', 'rb') as f:
+                content = f.read()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_error(404, "index.html not found")
+            
+    def serve_css(self):
+        """CSS配信"""
+        try:
+            with open('style.css', 'rb') as f:
+                content = f.read()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/css; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_error(404, "style.css not found")
+    
+    def serve_settings(self):
+        """設定情報をJSON形式で配信"""
+        settings = load_settings()
+        
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(settings).encode('utf-8'))
+    
+    def serve_status(self):
+        """システム状態をJSON形式で配信"""
+        try:
+            # 設定から監視状態を確認
+            settings = load_settings()
+            monitoring_active = settings.get('monitoring_enabled', True)
+            
+            status = {
+                'monitoring_active': monitoring_active,
+                'timestamp': time.time(),
+                'photos_count': len(get_photo_list())
+            }
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(status).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Status check error: {e}")
+            self.send_error(500)
+
+    # ... (省略) ...
+
+    def restart_monitoring(self):
+        """監視プロセス再開（フラグ有効化）"""
+        try:
+            # 設定で監視を有効にする
+            settings = load_settings()
+            settings['monitoring_enabled'] = True
+            save_settings(settings)
+            
+            # プロセス再起動は不要（ポーリングで検知）
+            response = {'success': True}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Restart monitoring error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    def stop_monitoring(self):
+        """監視プロセス停止（フラグ無効化）"""
+        try:
+            # 設定で監視を無効にする
+            settings = load_settings()
+            settings['monitoring_enabled'] = False
+            save_settings(settings)
+            
+            # プロセス停止は不要（ループ内で待機）
+            response = {'success': True}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Stop monitoring error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def serve_photo_list(self):
+        """写真一覧をJSON形式で配信"""
+        photos = get_photo_list()
+        
+        response = {'photos': photos}
+        
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def serve_photo(self, filename):
+        """写真ファイルを配信"""
+        photo_path = os.path.join(PHOTOS_DIR, filename)
+        
+        if not os.path.exists(photo_path):
+            self.send_error(404)
+            return
+        
+        try:
+            with open(photo_path, 'rb') as f:
+                content = f.read()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'image/jpeg')
+            self.send_header('Content-length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            
+        except Exception as e:
+            logger.error(f"Photo serve error: {e}")
+            self.send_error(500)
+    
+    def update_settings(self):
+        """設定更新処理"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            new_settings = json.loads(post_data.decode('utf-8'))
+            
+            # 設定を保存
+            save_settings(new_settings)
+            
+            response = {'success': True}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Settings update error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def capture_photo(self):
+        """手動写真撮影"""
+        try:
+            settings = load_settings()
+            timestamp = time.time()
+            filename = f"manual_{timestamp:.6f}.jpg"
+            photo_path = os.path.join(PHOTOS_DIR, filename)
+            
+            # libcameraコマンドで撮影
+            cmd = [
+                'libcamera-still',
+                '-o', photo_path,
+                '--width', str(settings['width']),
+                '--height', str(settings['height']),
+                '--quality', str(settings['quality']),
+                '--timeout', '1000',
+                '--nopreview'
+            ]
+            
+            # シャッタースピード設定
+            if settings['shutter_speed'] != 'auto':
+                try:
+                    if int(settings['shutter_speed']) > 0:
+                        cmd.extend(['--shutter', str(settings['shutter_speed'])])
+                except ValueError:
+                    logger.warning(f"Invalid shutter speed value: {settings['shutter_speed']}")
+            
+            # 露出モードは常にnormal（offは非対応）
+            cmd.extend(['--exposure', 'normal'])
+                
+            # ホワイトバランス設定
+            if 'white_balance' in settings and settings['white_balance'] != 'auto':
+                cmd.extend(['--awb', settings['white_balance']])
+            else:
+                cmd.extend(['--awb', 'auto'])
+
+            # ISO設定 (手動撮影用に追加)
+            if settings.get('iso', 'auto') != 'auto':
+                try:
+                    if int(settings['iso']) > 0:
+                        cmd.extend(['--gain', str(int(settings['iso']) / 100)])
+                except ValueError:
+                    logger.warning(f"Invalid ISO value: {settings['iso']}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                response = {'success': True, 'filename': filename}
+            else:
+                response = {'success': False, 'error': result.stderr}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Capture error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def restart_monitoring(self):
+        """監視プロセス再開"""
+        try:
+            # 設定で監視を有効にする
+            settings = load_settings()
+            settings['monitoring_enabled'] = True
+            save_settings(settings)
+            
+            result = subprocess.run(['sudo', 'systemctl', 'restart', 'shutter-trigger'], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                response = {'success': True}
+            else:
+                response = {'success': False, 'error': result.stderr}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Restart monitoring error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    def stop_monitoring(self):
+        """監視プロセス停止"""
+        try:
+            # 設定で監視を無効にする
+            settings = load_settings()
+            settings['monitoring_enabled'] = False
+            save_settings(settings)
+            
+            # プロセスを停止
+            result = subprocess.run(['sudo', 'systemctl', 'stop', 'shutter-trigger'], 
+                                  capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                response = {'success': True}
+            else:
+                response = {'success': False, 'error': result.stderr}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Stop monitoring error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+
+def load_settings():
+    """設定ファイルから設定を読み込み"""
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, 'r') as f:
+                settings = json.load(f)
+            
+            # 欠落しているキーをデフォルト値で補完
+            for key, default_value in DEFAULT_SETTINGS.items():
+                if key not in settings:
+                    settings[key] = default_value
+            
+            # boolean型の設定が文字列として保存される問題を修正
+            settings['enable_multiple_exposure'] = settings.get('enable_multiple_exposure', False) in (True, 'True', 'true', 'on')
+            settings['enable_2in1_composition'] = settings.get('enable_2in1_composition', False) in (True, 'True', 'true', 'on')
+            settings['enable_timestamp'] = settings.get('enable_timestamp', False) in (True, 'True', 'true', 'on')
+            
+            return settings
+        else:
+            return DEFAULT_SETTINGS.copy()
+    except Exception as e:
+        logger.error(f"Settings load error: {e}")
+        return DEFAULT_SETTINGS.copy()
+
+def save_settings(settings):
+    """設定をファイルに保存"""
+    try:
+        # 既存設定を読み込んで更新
+        current_settings = load_settings()
+        current_settings.update(settings)
+        
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump(current_settings, f, indent=2)
+        
+        logger.info("Settings saved successfully")
+        
+    except Exception as e:
+        logger.error(f"Settings save error: {e}")
+        raise
+
+def get_photo_list():
+    """写真ディレクトリから写真一覧を取得"""
+    try:
+        if not os.path.exists(PHOTOS_DIR):
+            os.makedirs(PHOTOS_DIR, exist_ok=True)
+            return []
+        
+        photos = []
+        for filename in os.listdir(PHOTOS_DIR):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                photos.append(filename)
+        
+        # 新しい順にソート
+        photos.sort(reverse=True)
+        return photos[:50]  # 最新50枚まで
+        
+    except Exception as e:
+        logger.error(f"Photo list error: {e}")
+        return []
+
+def main():
+    """メイン関数"""
+    try:
+        # 必要なディレクトリを作成
+        os.makedirs(PHOTOS_DIR, exist_ok=True)
+        
+        # HTTPサーバーを起動
+        server_address = ('0.0.0.0', 8001)
+        httpd = HTTPServer(server_address, CameraControlHandler)
+        
+        logger.info(f"Camera control server starting on port 8001")
+        logger.info(f"Access via: http://localhost:8001")
+        
+        httpd.serve_forever()
+        
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

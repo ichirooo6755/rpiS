@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no">
+    <title>Leverage Selector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            touch-action: manipulation;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+        }
+
+        /* Current Value Display */
+        .value-display {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .value-display .number {
+            font-size: 72px;
+            font-weight: 700;
+            color: #000;
+            letter-spacing: -3px;
+        }
+
+        .value-display .unit {
+            font-size: 36px;
+            font-weight: 300;
+            color: #666;
+        }
+
+        /* Triangle Indicator */
+        .triangle-indicator {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .triangle {
+            width: 0;
+            height: 0;
+            border-left: 12px solid transparent;
+            border-right: 12px solid transparent;
+            border-top: 18px solid #000;
+        }
+
+        /* Drum Container */
+        .drum-container {
+            position: relative;
+            height: 120px;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        .drum-container:active {
+            cursor: grabbing;
+        }
+
+        /* The drum surface */
+        .drum-surface {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        .number-line {
+            position: absolute;
+            display: flex;
+            align-items: flex-start;
+            height: 100%;
+            padding-top: 0;
+            transition: transform 0.1s ease-out;
+            will-change: transform;
+        }
+
+        .number-line.dragging {
+            transition: none;
+        }
+
+        .tick {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 20px;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .tick-line {
+            width: 1.5px;
+            background: #000;
+            transition: opacity 0.1s ease-out;
+        }
+
+        .tick-label {
+            position: absolute;
+            top: 100%;
+            margin-top: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #000;
+            white-space: nowrap;
+        }
+
+        /* Gradient fade on edges */
+        .drum-container::before,
+        .drum-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100px;
+            z-index: 5;
+            pointer-events: none;
+        }
+
+        .drum-container::before {
+            left: 0;
+            background: linear-gradient(to right, #fff, transparent);
+        }
+
+        .drum-container::after {
+            right: 0;
+            background: linear-gradient(to left, #fff, transparent);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Current Value Display -->
+        <div class="value-display">
+            <span class="number" id="valueDisplay">10</span><span class="unit">x</span>
+        </div>
+
+        <!-- Triangle Indicator -->
+        <div class="triangle-indicator">
+            <div class="triangle"></div>
+        </div>
+
+        <!-- Drum Number Line -->
+        <div class="drum-container" id="drumContainer">
+            <div class="drum-surface">
+                <div class="number-line" id="numberLine"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const maxLeverage = 150;
+        const minLeverage = 1;
+        const tickWidth = 20;
+
+        const valueDisplay = document.getElementById('valueDisplay');
+        const drumContainer = document.getElementById('drumContainer');
+        const numberLine = document.getElementById('numberLine');
+
+        let currentLeverage = 10;
+        let isDragging = false;
+        let startX = 0;
+        let currentOffset = 0;
+
+        // Haptic feedback
+        function haptic(type = 'light') {
+            if ('vibrate' in navigator) {
+                switch(type) {
+                    case 'light': navigator.vibrate(5); break;
+                    case 'medium': navigator.vibrate(15); break;
+                    case 'tick': navigator.vibrate(2); break;
+                }
+            }
+        }
+
+        // Generate number line with camera lens style ticks
+        function generateNumberLine() {
+            numberLine.innerHTML = '';
+            
+            for (let i = minLeverage; i <= maxLeverage; i += 1) {
+                const tick = document.createElement('div');
+                tick.className = 'tick';
+                tick.dataset.leverage = i;
+
+                const tickLine = document.createElement('div');
+                tickLine.className = 'tick-line';
+
+                const majorValues = [1, 5, 10, 25, 50, 75, 100, 125, 150];
+                
+                if (majorValues.includes(i)) {
+                    // Major ticks - tallest with labels
+                    tickLine.style.height = '50px';
+                    tickLine.style.width = '2px';
+                    const label = document.createElement('div');
+                    label.className = 'tick-label';
+                    label.textContent = i;
+                    tick.appendChild(tickLine);
+                    tick.appendChild(label);
+                } else if (i % 10 === 0) {
+                    // Every 10 - tall
+                    tickLine.style.height = '40px';
+                    tickLine.style.width = '1.5px';
+                    tick.appendChild(tickLine);
+                } else if (i % 5 === 0) {
+                    // Every 5 - medium
+                    tickLine.style.height = '30px';
+                    tickLine.style.width = '1.5px';
+                    tick.appendChild(tickLine);
+                } else {
+                    // Every 1 - short
+                    tickLine.style.height = '18px';
+                    tickLine.style.width = '1px';
+                    tick.appendChild(tickLine);
+                }
+
+                numberLine.appendChild(tick);
+            }
+        }
+
+        // Get offset for leverage
+        function getOffsetForLeverage(leverage) {
+            const containerWidth = drumContainer.offsetWidth;
+            const centerOffset = containerWidth / 2;
+            // leverageのインデックス（0始まり）を計算
+            const index = leverage - minLeverage;
+            // 各tickの中央がコンテナの中央に来るようにする
+            return centerOffset - (index * tickWidth) - (tickWidth / 2);
+        }
+
+        // Get leverage from offset
+        function getLeverageFromOffset(offset) {
+            const containerWidth = drumContainer.offsetWidth;
+            const centerOffset = containerWidth / 2;
+            // オフセットからleverageを逆算
+            const index = (centerOffset - offset - (tickWidth / 2)) / tickWidth;
+            const leverage = Math.round(index) + minLeverage;
+            return Math.max(minLeverage, Math.min(maxLeverage, leverage));
+        }
+
+        // Update tick opacity based on distance from center
+        function updateTickOpacity() {
+            const containerWidth = drumContainer.offsetWidth;
+            const centerX = containerWidth / 2;
+            
+            document.querySelectorAll('.tick').forEach(tick => {
+                const rect = tick.getBoundingClientRect();
+                const containerRect = drumContainer.getBoundingClientRect();
+                const tickCenterX = rect.left + rect.width / 2 - containerRect.left;
+                
+                const distance = Math.abs(tickCenterX - centerX);
+                const maxDistance = containerWidth / 2;
+                const normalizedDistance = Math.min(distance / maxDistance, 1);
+                
+                // Opacity based on distance
+                const opacity = 1 - normalizedDistance * 0.7;
+                tick.style.opacity = Math.max(0.1, opacity);
+            });
+        }
+
+        // Update position
+        function updateNumberLinePosition(leverage, animate = true) {
+            const offset = getOffsetForLeverage(leverage);
+            currentOffset = offset;
+            
+            if (animate) {
+                numberLine.classList.remove('dragging');
+            } else {
+                numberLine.classList.add('dragging');
+            }
+            
+            numberLine.style.transform = `translateX(${offset}px)`;
+            
+            requestAnimationFrame(updateTickOpacity);
+        }
+
+        // Update UI
+        function updateUI(leverage) {
+            currentLeverage = leverage;
+            valueDisplay.textContent = leverage;
+        }
+
+        // Send JSON data
+        function sendLeverageData(leverage) {
+            const data = { leverage: leverage };
+            console.log('Sending JSON:', JSON.stringify(data));
+            // Post message for external integration
+            window.postMessage({ type: 'leverageUpdate', data: data }, '*');
+            return data;
+        }
+
+        // Receive JSON data
+        function setLeverageFromJSON(jsonData) {
+            let data;
+            if (typeof jsonData === 'string') {
+                data = JSON.parse(jsonData);
+            } else {
+                data = jsonData;
+            }
+            
+            if (data && typeof data.leverage === 'number') {
+                const leverage = Math.max(minLeverage, Math.min(maxLeverage, Math.round(data.leverage)));
+                currentLeverage = leverage;
+                updateUI(leverage);
+                updateNumberLinePosition(leverage, true);
+            }
+        }
+
+        // Listen for external messages
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'setLeverage') {
+                setLeverageFromJSON(event.data.data);
+            }
+        });
+
+        // Expose global functions for external use
+        window.LeverageSelector = {
+            set: setLeverageFromJSON,
+            get: () => ({ leverage: currentLeverage }),
+            send: () => sendLeverageData(currentLeverage)
+        };
+
+        // Drag handlers
+        function handleDragStart(clientX) {
+            isDragging = true;
+            startX = clientX - currentOffset;
+            numberLine.classList.add('dragging');
+            haptic('light');
+        }
+
+        function handleDragMove(clientX) {
+            if (!isDragging) return;
+            
+            const newOffset = clientX - startX;
+            
+            // Clamp offset
+            const minOffset = getOffsetForLeverage(maxLeverage);
+            const maxOffset = getOffsetForLeverage(minLeverage);
+            const clampedOffset = Math.max(minOffset, Math.min(maxOffset, newOffset));
+            
+            currentOffset = clampedOffset;
+            numberLine.style.transform = `translateX(${clampedOffset}px)`;
+
+            const leverage = getLeverageFromOffset(clampedOffset);
+
+            requestAnimationFrame(updateTickOpacity);
+
+            // Haptic on value change
+            if (leverage !== currentLeverage) {
+                haptic('tick');
+                updateUI(leverage);
+            }
+        }
+
+        function handleDragEnd() {
+            if (!isDragging) return;
+            isDragging = false;
+            numberLine.classList.remove('dragging');
+            
+            updateNumberLinePosition(currentLeverage, true);
+            sendLeverageData(currentLeverage);
+            haptic('medium');
+        }
+
+        // Mouse events
+        drumContainer.addEventListener('mousedown', (e) => {
+            handleDragStart(e.clientX);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            handleDragMove(e.clientX);
+        });
+
+        document.addEventListener('mouseup', handleDragEnd);
+
+        // Touch events
+        drumContainer.addEventListener('touchstart', (e) => {
+            handleDragStart(e.touches[0].clientX);
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                e.preventDefault();
+                handleDragMove(e.touches[0].clientX);
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchend', handleDragEnd);
+
+        // Initialize
+        generateNumberLine();
+        updateUI(10);
+        // 初期位置を設定（アニメーションなし）
+        setTimeout(() => {
+            updateNumberLinePosition(10, false);
+            updateTickOpacity();
+        }, 10);
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            updateNumberLinePosition(currentLeverage, false);
+            updateTickOpacity();
+        });
+    </script>
+</body>
+</html>

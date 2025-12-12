@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Camera Control</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <h1>Pi Camera Control</h1>
+
+        <div class="status-bar" id="statusBar">
+            <h3>現在の状態</h3>
+            <div class="status-item">
+                <span class="status-label">監視状態:</span>
+                <span class="status-value" id="monitoringStatus">確認中...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">検知閾値:</span>
+                <span class="status-value" id="currentThreshold">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">タイムスタンプ:</span>
+                <span class="status-value" id="currentTimestamp">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">2in1合成:</span>
+                <span class="status-value" id="current2in1">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">多重露光:</span>
+                <span class="status-value" id="currentMultiple">-</span>
+            </div>
+        </div>
+
+        <div id="status" class="status" style="display: none;"></div>
+
+        <div class="section">
+            <h3>カメラ設定</h3>
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label for="iso">ISO感度:</label>
+                    <select id="iso" name="iso">
+                        <option value="auto">自動</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="400">400</option>
+                        <option value="800">800</option>
+                        <option value="1600">1600</option>
+                        <option value="3200">3200</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="shutter_speed">シャッタースピード:</label>
+                    <select id="shutter_speed" name="shutter_speed">
+                        <option value="auto">自動</option>
+                        <option value="1000">1/1000 秒</option>
+                        <option value="2000">1/500 秒</option>
+                        <option value="4000">1/250 秒</option>
+                        <option value="8000">1/125 秒</option>
+                        <option value="16666">1/60 秒</option>
+                        <option value="33333">1/30 秒</option>
+                        <option value="66666">1/15 秒</option>
+                        <option value="125000">1/8 秒</option>
+                        <option value="250000">1/4 秒</option>
+                        <option value="500000">1/2 秒</option>
+                        <option value="1000000">1 秒</option>
+                        <option value="2000000">2 秒</option>
+                        <option value="5000000">5 秒</option>
+                        <option value="10000000">10 秒</option>
+                        <option value="30000000">30 秒</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="white_balance">ホワイトバランス:</label>
+                    <select id="white_balance" name="white_balance">
+                        <option value="auto">自動</option>
+                        <option value="daylight">晴天</option>
+                        <option value="cloudy">曇り</option>
+                        <option value="tungsten">電球</option>
+                        <option value="fluorescent">蛍光灯</option>
+                        <option value="shade">日陰</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="detection_threshold">検知閾値 (0-100):</label>
+                    <input type="range" id="detection_threshold" name="detection_threshold" min="0" max="100">
+                    <span id="thresholdValue">30</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="enable_multiple_exposure">多重露光 (2回合成):</label>
+                    <input type="checkbox" id="enable_multiple_exposure" name="enable_multiple_exposure">
+                </div>
+
+                <div class="form-group">
+                    <label for="enable_2in1_composition">2in1合成 (左右並列):</label>
+                    <input type="checkbox" id="enable_2in1_composition" name="enable_2in1_composition">
+                </div>
+
+                <div class="form-group">
+                    <label for="enable_timestamp">日付・時刻スタンプ:</label>
+                    <input type="checkbox" id="enable_timestamp" name="enable_timestamp">
+                </div>
+
+                <button type="submit">設定を保存</button>
+                <button type="button" onclick="loadSettings()">設定を読み込み</button>
+            </form>
+        </div>
+
+        <div class="section">
+            <h3>監視制御</h3>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="restartMonitoring()" style="flex: 1;">監視を再開</button>
+                <button onclick="stopMonitoring()" style="flex: 1; background-color: #cc0000;">監視を停止</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 設定読み込み
+        function loadSettings() {
+            fetch('/api/settings')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('iso').value = data.iso;
+                    document.getElementById('shutter_speed').value = data.shutter_speed;
+
+                    // ホワイトバランス設定（存在する場合）
+                    if (data.white_balance) {
+                        const wbSelect = document.getElementById('white_balance');
+                        if (wbSelect) wbSelect.value = data.white_balance;
+                    }
+
+                    document.getElementById('detection_threshold').value = data.detection_threshold;
+                    document.getElementById('thresholdValue').textContent = data.detection_threshold;
+                    document.getElementById('enable_multiple_exposure').checked = data.enable_multiple_exposure;
+                    document.getElementById('enable_2in1_composition').checked = data.enable_2in1_composition;
+                    document.getElementById('enable_timestamp').checked = data.enable_timestamp;
+
+                    // ステータスバーを更新
+                    updateStatusBar(data);
+
+                    showStatus('設定を読み込みました', 'success');
+                })
+                .catch(error => {
+                    showStatus('設定の読み込みに失敗しました: ' + error, 'error');
+                });
+        }
+
+        // ステータスバー更新
+        function updateStatusBar(settings) {
+            // 監視状態を取得
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(status => {
+                    const monitoringStatus = document.getElementById('monitoringStatus');
+                    if (status.monitoring_active) {
+                        monitoringStatus.textContent = '監視中';
+                        monitoringStatus.className = 'status-value active';
+                    } else {
+                        monitoringStatus.textContent = '停止中';
+                        monitoringStatus.className = 'status-value inactive';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('monitoringStatus').textContent = '不明';
+                });
+
+            // 設定値を表示
+            document.getElementById('currentThreshold').textContent = settings.detection_threshold + '%';
+            document.getElementById('currentTimestamp').textContent = settings.enable_timestamp ? 'ON' : 'OFF';
+            document.getElementById('current2in1').textContent = settings.enable_2in1_composition ? 'ON' : 'OFF';
+            document.getElementById('currentMultiple').textContent = settings.enable_multiple_exposure ? 'ON' : 'OFF';
+        }
+
+        // 設定保存
+        document.getElementById('settingsForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const settings = Object.fromEntries(formData);
+
+            // ISOは 'auto' または数値
+            if (settings.iso !== 'auto') {
+                settings.iso = parseInt(settings.iso);
+            }
+
+            // シャッタースピードは 'auto' または数値
+            if (settings.shutter_speed !== 'auto') {
+                settings.shutter_speed = parseInt(settings.shutter_speed);
+            }
+
+            settings.detection_threshold = parseInt(settings.detection_threshold);
+            settings.enable_multiple_exposure = document.getElementById('enable_multiple_exposure').checked;
+            settings.enable_2in1_composition = document.getElementById('enable_2in1_composition').checked;
+            settings.enable_timestamp = document.getElementById('enable_timestamp').checked;
+
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(settings)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus('設定を保存しました', 'success');
+                        // 設定保存後にステータスバーも更新
+                        loadSettings();
+                    } else {
+                        showStatus('設定の保存に失敗しました: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showStatus('設定の保存に失敗しました: ' + error, 'error');
+                });
+        });
+
+        // 写真撮影
+        function capturePhoto() {
+            fetch('/api/capture', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus('写真を撮影しました: ' + data.filename, 'success');
+                        loadPhotos();
+                    } else {
+                        showStatus('撮影に失敗しました: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showStatus('撮影に失敗しました: ' + error, 'error');
+                });
+        }
+
+
+        // 監視再開
+        function restartMonitoring() {
+            fetch('/api/restart_monitoring', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus('監視を再開しました', 'success');
+                        // ステータス更新のために少し待機
+                        setTimeout(loadSettings, 1000);
+                    } else {
+                        showStatus('監視の再開に失敗しました: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showStatus('監視の再開に失敗しました: ' + error, 'error');
+                });
+        }
+
+        // 監視停止
+        function stopMonitoring() {
+            fetch('/api/stop_monitoring', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showStatus('監視を停止しました', 'success');
+                        // ステータス更新のために少し待機
+                        setTimeout(loadSettings, 1000);
+                    } else {
+                        showStatus('監視の停止に失敗しました: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showStatus('監視の停止に失敗しました: ' + error, 'error');
+                });
+        }
+
+        // ステータス表示
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            status.style.display = 'block';
+
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+
+        // スライダー値の更新
+        document.getElementById('detection_threshold').addEventListener('input', function () {
+            document.getElementById('thresholdValue').textContent = this.value;
+        });
+
+        // 初期化
+        window.addEventListener('load', function () {
+            loadSettings();
+        });
+    </script>
+</body>
+
+</html>
