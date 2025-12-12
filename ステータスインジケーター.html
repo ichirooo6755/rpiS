@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial Status Indicator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body {
+            font-family: 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", monospace;
+            background-color: #18181b; /* zinc-950 */
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: #d4d4d8; /* zinc-300 */
+        }
+        
+        /* Industrial Glow Effects */
+        .signal-on-green {
+            color: #4ade80; /* green-400 */
+            text-shadow: 
+                0 0 5px rgba(74, 222, 128, 0.8),
+                0 0 15px rgba(74, 222, 128, 0.6),
+                0 0 30px rgba(74, 222, 128, 0.4);
+            opacity: 1;
+            transform: scale(1.05);
+            filter: brightness(1.2);
+        }
+
+        .signal-on-red {
+            color: #f87171; /* red-400 */
+            text-shadow: 
+                0 0 5px rgba(248, 113, 113, 0.8),
+                0 0 15px rgba(248, 113, 113, 0.6),
+                0 0 30px rgba(248, 113, 113, 0.4);
+            opacity: 1;
+            transform: scale(1.05);
+            filter: brightness(1.2);
+        }
+
+        /* Unlit States - Darker colors to look like "off" bulbs */
+        .signal-off-green {
+            color: #14532d; /* green-900 */
+            text-shadow: none;
+            opacity: 0.4;
+            transform: scale(1);
+            filter: grayscale(0.2);
+        }
+
+        .signal-off-red {
+            color: #450a0a; /* red-950 */
+            text-shadow: none;
+            opacity: 0.4;
+            transform: scale(1);
+            filter: grayscale(0.2);
+        }
+
+        .status-text {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Screw decoration */
+        .screw {
+            width: 12px;
+            height: 12px;
+            background: radial-gradient(circle, #52525b 0%, #27272a 100%);
+            border-radius: 50%;
+            border: 1px solid #18181b;
+            box-shadow: inset 1px 1px 2px rgba(255,255,255,0.2), 1px 1px 2px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .screw::after {
+            content: '';
+            width: 80%;
+            height: 2px;
+            background-color: #18181b;
+            transform: rotate(45deg);
+        }
+
+        /* Panel Bevel */
+        .panel-plate {
+            background-color: #27272a; /* zinc-800 */
+            border: 1px solid #3f3f46;
+            box-shadow: 
+                inset 1px 1px 0px rgba(255, 255, 255, 0.1),
+                inset -1px -1px 0px rgba(0, 0, 0, 0.5),
+                0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Recessed Screen Area */
+        .recessed-screen {
+            background-color: #09090b; /* zinc-950 */
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.8);
+            border-bottom: 1px solid #3f3f46;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-6">
+
+    <!-- Industrial Panel -->
+    <div class="panel-plate relative max-w-md w-full rounded-lg p-1 space-y-6">
+        
+        <!-- Screws -->
+        <div class="absolute top-3 left-3 screw"></div>
+        <div class="absolute top-3 right-3 screw" style="transform: rotate(90deg)"></div>
+        <div class="absolute bottom-3 left-3 screw" style="transform: rotate(45deg)"></div>
+        <div class="absolute bottom-3 right-3 screw" style="transform: rotate(135deg)"></div>
+
+        <div class="p-8 space-y-8">
+            <div class="text-center space-y-1 border-b border-zinc-700 pb-4">
+                <h1 class="text-xl font-bold tracking-widest text-zinc-400 uppercase">Status Monitor</h1>
+                <p class="text-[10px] text-zinc-600 uppercase tracking-widest">System Interface V.1.0</p>
+            </div>
+
+            <!-- Indicator Display: Recessed Dark Area -->
+            <div class="recessed-screen rounded-md flex flex-col justify-center items-center gap-4 py-12 border border-zinc-800">
+                <!-- YES Indicator -->
+                <div id="indicator-yes" class="status-text text-8xl font-black tracking-widest cursor-default select-none signal-off-green">
+                    YES
+                </div>
+
+                <!-- NO Indicator -->
+                <div id="indicator-no" class="status-text text-8xl font-black tracking-widest cursor-default select-none signal-off-red">
+                    NO
+                </div>
+            </div>
+
+            <!-- JSON Input Control: Terminal Style -->
+            <div class="space-y-2">
+                <div class="flex justify-between items-end">
+                    <label for="json-input" class="block text-xs font-bold text-zinc-500 uppercase tracking-wider">Config Input</label>
+                    <span class="text-[10px] text-zinc-600 font-mono">JSON_MODE</span>
+                </div>
+                <div class="relative group">
+                    <textarea id="json-input" rows="4" 
+                        class="block w-full rounded-sm border-2 border-zinc-700 bg-black text-green-500 font-mono text-sm p-4 focus:outline-none focus:border-green-600 focus:ring-1 focus:ring-green-900 shadow-inner transition-colors placeholder-zinc-700"
+                        spellcheck="false">{
+  "status": "YES"
+}</textarea>
+                    <!-- Status LED for Input -->
+                    <div id="input-status-led" class="absolute top-2 right-2 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e]"></div>
+                    <div id="error-message" class="absolute bottom-2 right-2 text-red-500 text-xs font-bold bg-black px-1 hidden">Syntax Error</div>
+                </div>
+                <p class="text-[10px] text-zinc-600 uppercase">Input stream accepts boolean or status string</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const indicatorYes = document.getElementById('indicator-yes');
+        const indicatorNo = document.getElementById('indicator-no');
+        const jsonInput = document.getElementById('json-input');
+        const errorMessage = document.getElementById('error-message');
+        const inputLed = document.getElementById('input-status-led');
+
+        function updateStatus(status) {
+            // Reset to base "off" states
+            indicatorYes.classList.remove('signal-on-green');
+            indicatorYes.classList.add('signal-off-green');
+            
+            indicatorNo.classList.remove('signal-on-red');
+            indicatorNo.classList.add('signal-off-red');
+
+            // Normalize input
+            let isYes = false;
+            
+            if (typeof status === 'string') {
+                const s = status.toUpperCase();
+                if (s === 'YES' || s === 'OK' || s === 'TRUE') isYes = true;
+            } else if (typeof status === 'boolean') {
+                isYes = status;
+            }
+
+            // Apply "On" styles based on status
+            if (isYes) {
+                indicatorYes.classList.remove('signal-off-green');
+                indicatorYes.classList.add('signal-on-green');
+            } else {
+                indicatorNo.classList.remove('signal-off-red');
+                indicatorNo.classList.add('signal-on-red');
+            }
+        }
+
+        function handleInput() {
+            const rawValue = jsonInput.value;
+            try {
+                const data = JSON.parse(rawValue);
+                errorMessage.classList.add('hidden');
+                
+                // Terminal styling for valid input
+                jsonInput.classList.remove('border-red-800', 'text-red-400');
+                jsonInput.classList.add('border-zinc-700', 'text-green-500');
+                inputLed.classList.remove('bg-red-500', 'shadow-[0_0_5px_#ef4444]');
+                inputLed.classList.add('bg-green-500', 'shadow-[0_0_5px_#22c55e]');
+                
+                // Try to find a status-like key
+                let statusValue = null;
+                if (typeof data === 'object' && data !== null) {
+                    if ('status' in data) statusValue = data.status;
+                    else if ('value' in data) statusValue = data.value;
+                    else if ('is_active' in data) statusValue = data.is_active;
+                    else if ('active' in data) statusValue = data.active;
+                    else if ('result' in data) statusValue = data.result;
+                    else {
+                        // Fallback: check first value
+                        const values = Object.values(data);
+                        if (values.length > 0) statusValue = values[0];
+                    }
+                } else {
+                    // primitive value
+                    statusValue = data;
+                }
+
+                updateStatus(statusValue);
+
+            } catch (e) {
+                errorMessage.classList.remove('hidden');
+                // Terminal styling for error
+                jsonInput.classList.add('border-red-800', 'text-red-400');
+                jsonInput.classList.remove('border-zinc-700', 'text-green-500');
+                inputLed.classList.add('bg-red-500', 'shadow-[0_0_5px_#ef4444]');
+                inputLed.classList.remove('bg-green-500', 'shadow-[0_0_5px_#22c55e]');
+            }
+        }
+
+        // Initialize
+        jsonInput.addEventListener('input', handleInput);
+        
+        // Initial run
+        handleInput();
+
+    </script>
+</body>
+</html>
