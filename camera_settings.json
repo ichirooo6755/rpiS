@@ -18,5 +18,8 @@
   "detection_interval": 1.0,
   "enable_multiple_exposure": false,
   "enable_2in1_composition": false,
-  "enable_timestamp": false
+  "enable_timestamp": false,
+  "wifi_mode": "tethering",
+  "ap_ssid": "PiCamera",
+  "ap_password": "picamera123"
 }

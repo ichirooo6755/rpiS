@@ -130,12 +130,64 @@
             </form>
         </div>
 
+        </div>
+
         <div class="section">
             <h3>監視制御</h3>
             <div style="display: flex; gap: 10px;">
                 <button onclick="restartMonitoring()" style="flex: 1;">監視を再開</button>
                 <button onclick="stopMonitoring()" style="flex: 1; background-color: #cc0000;">監視を停止</button>
             </div>
+        </div>
+
+        <div class="section">
+            <h3>ネットワーク設定 (Wi-Fi)</h3>
+            <div class="wifi-status-panel">
+                <div class="wifi-mode-display">
+                    <span id="wifiModeLabel">現在のモード: <strong id="currentWifiMode">取得中...</strong></span>
+                </div>
+                <div class="wifi-info">
+                    SSID: <span id="currentWifiSSID">-</span><br>
+                    IP: <span id="currentWifiIP">-</span>
+                </div>
+            </div>
+
+            <div class="wifi-toggle-container">
+                <div class="toggle-switch-wrapper">
+                    <span class="toggle-option" id="label-tethering">テザリング (Client)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="wifiModeSwitch">
+                        <span class="slider round"></span>
+                    </label>
+                    <span class="toggle-option" id="label-ap">APモード (Host)</span>
+                </div>
+            </div>
+
+            <div id="ap-settings-panel" style="display: none; margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <h4>APモード設定</h4>
+                <div class="form-group">
+                    <label>SSID:</label>
+                    <input type="text" id="ap_ssid" placeholder="PiCamera">
+                </div>
+                <div class="form-group">
+                    <label>パスワード (8文字以上):</label>
+                    <input type="text" id="ap_password" placeholder="picamera123">
+                </div>
+                <p style="font-size: 0.8em; color: #aaa;">
+                    <br>注意: APモードに切り替えると現在のWi-Fiは切断されます。<br>
+                    切り替え後はスマホから上記SSIDに接続し直し、<br>
+                    <strong>http://192.168.4.1:8001</strong> にアクセスしてください。
+                </p>
+            </div>
+            
+            <div id="tethering-msg-panel" style="display: none; margin-top: 15px; padding: 10px;">
+                <p style="font-size: 0.9em;">
+                    テザリングモードに切り替えると、Raspberry Piは記憶されているWi-Fi (スマホのテザリング等) に自動接続を試みます。<br>
+                    切り替え後、<strong>http://raspberrypi.local:8001</strong> にアクセスしてください。
+                </p>
+            </div>
+
+            <button id="btnSwitchWifi" onclick="switchWifiMode()" style="margin-top: 15px; background-color: #007bff;">モード切り替え実行</button>
         </div>
     </div>
 
@@ -768,6 +820,105 @@
             updateIndicator('indicatorTimestamp', settings.enable_timestamp);
             updateIndicator('indicator2in1', settings.enable_2in1_composition);
             updateIndicator('indicatorMultiple', settings.enable_multiple_exposure);
+
+            // Wi-Fiステータス更新
+            updateWifiStatus();
+        }
+
+        // --- Wi-Fi Control Logic ---
+        
+        const wifiSwitch = document.getElementById('wifiModeSwitch');
+        const apPanel = document.getElementById('ap-settings-panel');
+        const tetheringPanel = document.getElementById('tethering-msg-panel');
+        
+        wifiSwitch.addEventListener('change', function() {
+            if (this.checked) {
+                // AP Mode selected
+                apPanel.style.display = 'block';
+                tetheringPanel.style.display = 'none';
+                document.getElementById('label-ap').style.color = '#fff';
+                document.getElementById('label-tethering').style.color = '#666';
+            } else {
+                // Tethering Mode selected
+                apPanel.style.display = 'none';
+                tetheringPanel.style.display = 'block';
+                document.getElementById('label-ap').style.color = '#666';
+                document.getElementById('label-tethering').style.color = '#fff';
+            }
+        });
+
+        function updateWifiStatus() {
+            fetch('/api/wifi/status')
+                .then(r => r.json())
+                .then(data => {
+                    const modeLabel = document.getElementById('currentWifiMode');
+                    const ssidLabel = document.getElementById('currentWifiSSID');
+                    const ipLabel = document.getElementById('currentWifiIP');
+                    
+                    if (data.mode === 'ap') {
+                        modeLabel.textContent = 'APモード (親機)';
+                        modeLabel.style.color = '#4CAF50';
+                        wifiSwitch.checked = true; // Switch to ON (AP)
+                        // Update input fields with saved values
+                        if (data.ap_ssid) document.getElementById('ap_ssid').value = data.ap_ssid;
+                        if (data.ap_password) document.getElementById('ap_password').value = data.ap_password;
+                    } else {
+                        modeLabel.textContent = 'テザリング (子機)';
+                        modeLabel.style.color = '#2196F3';
+                        wifiSwitch.checked = false; // Switch to OFF (Tethering)
+                    }
+                    
+                    // Trigger change event to update UI visibility
+                    wifiSwitch.dispatchEvent(new Event('change'));
+                    
+                    ssidLabel.textContent = data.ssid || '-';
+                    ipLabel.textContent = data.ip_address || '-';
+                })
+                .catch(e => console.error("Wi-Fi status error:", e));
+        }
+        
+        function switchWifiMode() {
+            const isApMode = wifiSwitch.checked;
+            const payload = {
+                mode: isApMode ? 'ap' : 'tethering'
+            };
+            
+            if (isApMode) {
+                const ssid = document.getElementById('ap_ssid').value;
+                const pw = document.getElementById('ap_password').value;
+                if (pw.length < 8) {
+                    alert('パスワードは8文字以上必要です');
+                    return;
+                }
+                payload.ssid = ssid;
+                payload.password = pw;
+            }
+            
+            if (!confirm(`Wi-Fiモードを「${isApMode ? 'APモード' : 'テザリングモード'}」に切り替えますか？\n接続が切断されます。`)) {
+                return;
+            }
+            
+            document.getElementById('btnSwitchWifi').disabled = true;
+            document.getElementById('btnSwitchWifi').textContent = '切り替え中...';
+            
+            fetch('/api/wifi/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                } else {
+                    alert('エラー: ' + data.message);
+                    document.getElementById('btnSwitchWifi').disabled = false;
+                    document.getElementById('btnSwitchWifi').textContent = 'モード切り替え実行';
+                }
+            })
+            .catch(e => {
+                alert('通信エラー（切り替えが開始された可能性があります）');
+            });
         }
         
         function updateIndicator(id, isOn) {

@@ -13,6 +13,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import subprocess
 import logging
+import wifi_manager
 
 # ログ設定
 logging.basicConfig(
@@ -71,6 +72,8 @@ class CameraControlHandler(BaseHTTPRequestHandler):
             self.serve_photo_list()
         elif parsed_path.path.startswith('/photos/'):
             self.serve_photo(parsed_path.path[8:])  # /photos/ を除去
+        elif parsed_path.path == '/api/wifi/status':
+            self.serve_wifi_status()
         else:
             self.send_error(404)
     
@@ -86,6 +89,8 @@ class CameraControlHandler(BaseHTTPRequestHandler):
             self.restart_monitoring()
         elif parsed_path.path == '/api/stop_monitoring':
             self.stop_monitoring()
+        elif parsed_path.path == '/api/wifi/switch':
+            self.switch_wifi_mode()
         else:
             self.send_error(404)
     
@@ -376,6 +381,59 @@ class CameraControlHandler(BaseHTTPRequestHandler):
             
         except Exception as e:
             logger.error(f"Stop monitoring error: {e}")
+            response = {'success': False, 'error': str(e)}
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    def serve_wifi_status(self):
+        """Wi-Fiステータス配信"""
+        status = wifi_manager.get_wifi_status()
+        # 保存されているAP設定も返す（フロントエンド表示用）
+        ap_settings = wifi_manager.get_saved_ap_settings()
+        status['ap_ssid'] = ap_settings['ssid']
+        status['ap_password'] = ap_settings['password']
+        
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(status).encode('utf-8'))
+
+    def switch_wifi_mode(self):
+        """Wi-Fiモード切り替え処理"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            mode = data.get('mode')
+            
+            if mode == 'ap':
+                ssid = data.get('ssid')
+                password = data.get('password')
+                result = wifi_manager.switch_to_ap_mode(ssid, password)
+            elif mode == 'tethering':
+                result = wifi_manager.switch_to_tethering_mode()
+            else:
+                result = {'success': False, 'message': 'Unknown mode'}
+            
+            if result['success']:
+                self.send_response(200)
+            else:
+                self.send_response(500)
+                
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode('utf-8'))
+            
+            # モード切り替え成功時にネットワーク再起動が走るため、
+            # レスポンス送信後に少し待ってからプロセス終了等の処理が必要かも？
+            # 今回は wifi_manager 側で処理完結させる
+            
+        except Exception as e:
+            logger.error(f"Wi-Fi switch error: {e}")
             response = {'success': False, 'error': str(e)}
             
             self.send_response(500)
