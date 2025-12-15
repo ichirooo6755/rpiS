@@ -507,6 +507,28 @@ def main():
         # 必要なディレクトリを作成
         os.makedirs(PHOTOS_DIR, exist_ok=True)
         
+        # --- 起動時のネットワーク設定適用 ---
+        try:
+            settings = load_settings()
+            current_mode = wifi_manager.get_current_mode()
+            target_mode = settings.get('wifi_mode', 'tethering')
+            
+            logger.info(f"Boot check: current_mode={current_mode}, target_mode={target_mode}")
+            
+            if target_mode == 'ap' and current_mode != 'ap':
+                logger.info("Switching to AP mode on boot...")
+                ssid = settings.get('ap_ssid', 'PiCamera')
+                password = settings.get('ap_password', 'picamera123')
+                wifi_manager.switch_to_ap_mode(ssid, password)
+            
+            elif target_mode == 'tethering' and current_mode == 'ap':
+                logger.info("Switching to Tethering mode on boot...")
+                wifi_manager.switch_to_tethering_mode()
+                
+        except Exception as e:
+            logger.error(f"Failed to apply boot network settings: {e}")
+        # ------------------------------------
+        
         # HTTPサーバーを起動
         server_address = ('0.0.0.0', 8001)
         httpd = HTTPServer(server_address, CameraControlHandler)

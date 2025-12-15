@@ -144,7 +144,8 @@ dhcp-range={AP_DHCP_RANGE_START},{AP_DHCP_RANGE_END},255.255.255.0,24h
         if process.returncode != 0:
             return {'success': False, 'message': f'dnsmasq設定の書き込みに失敗: {process.stderr}'}
         
-        # 3. wpa_supplicantを停止
+        # 3. dhcpcd と wpa_supplicant を停止（これで家のルーターからIPを貰わなくなる）
+        subprocess.run(['sudo', 'systemctl', 'stop', 'dhcpcd'], capture_output=True)
         subprocess.run(['sudo', 'systemctl', 'stop', 'wpa_supplicant'], capture_output=True)
         
         # 4. wlan0に固定IPを設定
