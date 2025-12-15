@@ -115,8 +115,8 @@ sudo journalctl -u photo-server -n 50
 
 # サービスを再起動
 sudo systemctl restart camera-control
-sudo systemctl restart shutter-trigger
 sudo systemctl restart photo-server
+sudo systemctl restart shutter-trigger
 ```
 
 ### カメラが認識されない場合

@@ -47,6 +47,7 @@ h1 {
   margin-bottom: 15px;
   letter-spacing: 1px;
   text-transform: uppercase;
+  text-align: center;
 }
 
 .status-item {
@@ -104,6 +105,7 @@ label {
   margin-bottom: 8px;
   font-size: 0.9rem;
   letter-spacing: 0.5px;
+  text-align: center;
 }
 
 input[type="number"],
@@ -163,16 +165,25 @@ select option {
 button {
   background: #0a0a0a;
   color: #ffffff;
-  padding: 14px 28px;
+  padding: 14px 22px;
   border: none;
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  margin-right: 12px;
+  margin-right: 21px;
   margin-bottom: 10px;
+  margin-left: 233px;
   transition: all 0.2s ease;
   letter-spacing: 1px;
   text-transform: uppercase;
+  border-radius: 0px;
+  border-top-left-radius: 0px;
+  border-top-right-radius: 0px;
+  border-bottom-right-radius: 0px;
+  border-bottom-left-radius: 0px;
+  height: 57px;
+  width: 166px;
+  top: 242px;
 }
 
 button:hover {
@@ -229,7 +240,7 @@ span {
   width: 100%;
   /* max-width: 500px; */
   padding: 10px 0;
-  background: #f9f9f9;
+  background: rgba(237, 237, 237, 1);
   border: 1px solid #eee;
   border-radius: 8px;
   margin-top: 10px;
@@ -387,6 +398,13 @@ span {
   margin-bottom: 8px;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+  width: 27px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  margin-right: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin-left: 3px;
 }
 
 .switch-body {
@@ -396,12 +414,25 @@ span {
   cursor: pointer;
 }
 
+#switch-timestamp {
+  border-style: solid;
+  border-width: 0px;
+  border-color: rgba(0, 0, 0, 1);
+}
+
 .switch-body .bezel {
   position: absolute;
   inset: 0;
   background: #fff;
-  border: 2px solid #000;
+  border: 0px solid rgba(0, 0, 0, 1);
   border-radius: 18px;
+}
+
+#switch-2in1 .bezel {
+  background-color: rgba(255, 255, 255, 0);
+  background: unset;
+  left: unset;
+  top: unset;
 }
 
 .switch-body .slot {
@@ -433,7 +464,11 @@ span {
 }
 
 .switch-body .lever.off {
-  top: 24px;
+}
+
+#switch-timestamp .lever.off {
+  left: unset;
+  top: unset;
 }
 
 .switch-body .lever.on {
@@ -445,6 +480,8 @@ span {
   height: 2px;
   background: #000;
   margin-bottom: 2px;
+  color: rgba(10, 10, 10, 0);
+  background-color: rgba(0, 0, 0, 1);
 }
 
 .switch-body .indicator {
@@ -532,7 +569,7 @@ span {
   text-align: center;
   padding: 15px 25px;
   background: #fff;
-  border: 2px solid #0a0a0a;
+  border: 2px solid rgba(224, 224, 224, 1);
   border-radius: 8px;
 }
 
